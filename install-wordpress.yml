@@ -1,0 +1,154 @@
+---
+- hosts: wordpress
+  name: install wordpress
+  remote_user: root
+  tasks:
+    - name: Install listed package for wordpress
+      yum:
+        name: 
+          - httpd
+          - mariadb
+          - mariadb-server
+          - php
+          - php-common
+          - php-mysql
+          - php-gd
+          - php-xml
+          - php-mbstring
+          - php-mcrypt
+          - php-xmlrpc
+          - unzip
+          - wget
+          - python-pip
+        state: present
+    - name: Install PyMySQL for db management
+      pip:
+        name: pymysql
+    - name: Start and enable httpd service
+      service:
+        name: httpd
+        state: started
+        enabled: yes
+    - name: Start and enable MariaDB service
+      service:
+        name: mariadb
+        state: started
+        enabled: yes
+    - name: Add HTTP service to firewall
+      firewalld:
+        service: http
+        permanent: yes
+        immediate: yes
+        state: enabled
+    - name: set root password
+      block:
+        - mysql_user:
+            login_user: root
+            login_password: 
+            name: root
+            password: 'abc'
+            host: localhost
+      rescue:
+        - debug: 
+            msg: "already set password"
+    - name: remove anonymous user
+      block:
+        - mysql_user:
+            login_user: root
+            login_password: abc
+            name: ''
+            host_all: yes
+            state: absent
+      rescue: 
+        - debug:
+            msg: "anonymous user not found"
+    - name: remove test database
+      block:      
+        - mysql_db:
+            login_user: root
+            login_password: abc
+            name: test
+            state: absent
+      rescue:
+        - debug:
+            msg: "test database not found"
+    - name: Create new database for wordpress
+      block:
+        - mysql_db:
+            login_user: root
+            login_password: abc
+            name:
+              - wordpress
+            state: present
+      rescue:
+        - debug: 
+            msg: "wordpress database exist"
+    - name: Create ansible user and grant priv to wordpress db
+      block:
+        - mysql_user:
+            login_user: root
+            login_password: abc
+            name: ansible
+            password: mypassword
+            host: localhost
+            priv: 'wordpress.*:ALL'
+            state: present
+      rescue:
+        - debug:
+            msg: "user exist"
+#    - name: Download wordpress from wordpress.org
+#      get_url:
+#        url: https://wordpress.org/wordpress-5.0.tar.gz
+#        dest: /root/wordpress-5.0.tar.gz
+#        mode: '0755'
+    - name: Unzip wordpress
+      unarchive:
+        src: https://wordpress.org/wordpress-5.0.tar.gz
+        dest: /var/www/html/
+        remote_src: yes
+    - name: Change owner to apache
+      file:
+        path: /var/www/html/wordpress
+        owner: apache
+        group: apache
+        mode: '0755'
+        recurse: yes
+    - name: Create directory wp-content/uploads
+      file:
+        path: /var/www/html/wordpress/wp-content/uploads
+        state: directory
+        mode: '0755'
+        owner: apache
+        group: apache
+    - name: Copy wp-config.php example to wp-config.php
+      copy:
+        src: /var/www/html/wordpress/wp-config-sample.php
+        dest: /var/www/html/wordpress/wp-config.php
+        remote_src: yes
+    - name: Change ownership of wp-config.php
+      file:
+        path: /var/www/html/wordpress/wp-config.php
+        owner: apache
+        group: apache
+        mode: '0755'
+    - name: Remove wp-config-sample.php
+      file:
+        path: /var/www/html/wordpress/wp-config-sample.php
+        state: absent
+    - name: Config Wordpress
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_NAME'
+        line: define('DB_NAME', 'wordpress');
+    - lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_USER'
+        line: define('DB_USER', 'ansible');
+    - lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_PASSWORD'
+        line: define('DB_PASSWORD', 'mypassword');
+    - lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_HOST'
+        line: define('DB_HOST', 'localhost');
